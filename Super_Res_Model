@@ -1,0 +1,191 @@
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import Dataset, DataLoader
+import matplotlib.pyplot as plt
+import cv2
+import numpy as np
+
+#Synthetic Dataset
+
+class SyntheticImages(Dataset):
+    def __init__(self, count, image_size=(64,64), scale_factor=2):
+        self.image_size = image_size
+        self.scale_factor = scale_factor
+        self.count = count
+    def __len__(self):return self.count
+
+    def __getitem__(self, idx):
+        lowres_img = np.random.rand(self.image_size[0], self.image_size[1])
+        highres_img = cv2.resize(lowres_img, (self.image_size[0]*self.scale_factor, self.image_size[1]*self.scale_factor), cv2.INTER_CUBIC)
+
+
+        return torch.tensor(lowres_img), torch.tensor(highres_img)
+
+
+a = SyntheticImages(10)
+lr, hr = a[1]
+print(lr.shape, hr.shape)
+print(lr.dtype, hr.dtype)
+
+
+
+'''class SuperResolutionModel(nn.Module):
+    def __init__(self):
+        super(SuperResolutionModel, self).__init__()
+
+        self.conv1 = nn.Conv2d(1, 56, kernel_size=5)
+        self.conv2 = nn.Conv2d(56,12, kernel_size=1)
+        self.conv3 = nn.Conv2d(12,12, kernel_size=3)
+        self.conv4 = nn.Conv2d(12, 56, kernel_size=1)
+        self.deconv = nn.ConvTranspose2d(56,1,kernel_size=9, stride=2, padding=2)
+
+        self.relu = nn.ReLU()
+
+    def forward(self, x):
+
+        x = self.conv1(x)
+        x = self.relu(x)
+        x = self.conv2(x)
+        x = self.relu(x)
+        for i in range(5):
+            x = self.conv3(x)
+            x = self.relu(x)
+        x = self.conv4(x)
+        x = self.relu(x)
+        x = self.deconv(x)
+        return x'''
+
+import torch
+import torch.nn as nn
+
+import torch
+import torch.nn as nn
+
+class SuperResolutionModel(nn.Module):
+    def __init__(self):
+        super(SuperResolutionModel, self).__init__()
+        
+        self.conv1 = nn.Conv2d(1, 56, kernel_size=5, padding=2)
+        
+        self.conv2 = nn.Conv2d(56, 12, kernel_size=1)
+        
+        self.conv3 = nn.Conv2d(12, 12, kernel_size=3, padding=1)
+        
+        self.conv4 = nn.Conv2d(12, 56, kernel_size=1)
+        
+        self.deconv = nn.ConvTranspose2d(56, 56, kernel_size=4, stride=2, padding=1)
+        
+        self.conv5 = nn.Conv2d(56, 1, kernel_size=9, padding=4)
+        
+        self.relu = nn.ReLU()
+
+    def forward(self, x):
+
+        x = self.conv1(x)
+        x = self.relu(x)
+        
+        x = self.conv2(x)
+        x = self.relu(x)
+        
+        for _ in range(5):
+            x = self.conv3(x)
+            x = self.relu(x)
+        
+        x = self.conv4(x)
+        x = self.relu(x)
+        
+        x = self.deconv(x)
+        
+        x = self.conv5(x)
+        
+        return x
+
+
+from torchsummary import summary
+
+model = SuperResolutionModel()
+# batch, channel, y, x
+# batch, channel, t, y, x
+# batch, channel, y, x, t
+artificial_x = torch.rand((1,1,200,200))
+
+output = model(artificial_x)
+
+
+
+a = nn.ConvTranspose2d(1,1,kernel_size=9, stride=2, padding=2)
+dummy_input = torch.rand((1,1,200,200))
+dummy_output = a(dummy_input)
+print(dummy_output.shape)
+
+
+summary(model, (1,200,200))
+
+
+!pip install onnx
+
+torch.onnx.export(model,               # Your PyTorch model
+                artificial_x,         # Dummy input data
+                "model.onnx",        # Output ONNX filename
+                verbose=False,       # Set to True for detailed output
+                opset_version=11,
+                do_constant_folding=False)
+
+
+dataset = SyntheticImages(100, image_size=(64,64))
+dataloader = DataLoader(dataset=dataset, batch_size=10, shuffle=True)
+
+model = SuperResolutionModel()
+model.train()
+
+# model prediction - expected result = error
+criterion = nn.MSELoss()
+optimizer = optim.Adam(model.parameters(), lr=0.001)
+
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+model.to(device)
+
+model.train()
+from tqdm import tqdm
+
+dataloader_progress = tqdm(dataloader, desc="Training")
+
+for epoch in range(10):
+    # for i, (lr_images, hr_images) in enumerate(dataloader):
+    for lr_images, hr_images in dataloader_progress:
+        # batch, channels, y, x
+        # raise
+        lr_images = lr_images.to(device).float()
+        hr_images = hr_images.to(device).float()
+
+        lr_images = lr_images.unsqueeze(1)
+        hr_images = hr_images.unsqueeze(1)
+
+        predictions = model(lr_images)
+
+        error = criterion(predictions, hr_images)
+
+        optimizer.zero_grad()
+        error.backward()
+        optimizer.step()
+
+        # if (i+1)%10 == 0:
+        #     print(f"Epoch {epoch+1}/10, step:{i+1}/{len(dataloader)}, Error:{error.item():.4f}")
+
+print(lr_images[1][0].shape)
+
+plt.imshow(lr_images[1][0])
+
+print(hr_images[1][0].shape)
+
+plt.imshow(hr_images[1][0])
+
+image = predictions[1][0].detach().numpy()
+
+print(image.shape)
+
+plt.imshow(image)
+
