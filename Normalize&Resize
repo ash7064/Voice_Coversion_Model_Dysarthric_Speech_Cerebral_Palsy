@@ -1,0 +1,55 @@
+#Normalizing & Resized
+
+import matplotlib.pyplot as plt
+
+from skimage import data, color
+from skimage.transform import rescale, resize, downscale_local_mean
+
+
+for i in range(len(df_xtrain)):
+    image = np.load("/Users/harish/Downloads/starter_code/data_processed_f/train/X_spec/" + str(i) + '.npy')
+    h, w = image.shape
+    df_xtrain.iloc[i, 3] = h
+    df_xtrain.iloc[i, 4] = w
+    image_resized = resize(
+        image, (128, 1024), anti_aliasing=True
+    )
+    np.save('/Users/harish/Downloads/starter_code/data_processed_f/train/X_stretched/' + str(i) + '.npy', image_resized)
+    df_xtrain.iloc[i, 5] = '/Users/harish/Downloads/starter_code/data_processed_f/train/X_stretched/'+ str(i) + '.npy'
+
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+spectrograms = np.zeros((3479, 128, 1024))
+for i in range(len(df_xtrain)):
+    spec_filepath = str(df_xtrain.iloc[i, 5])
+    img = np.load(spec_filepath)
+    spectrograms[i,:,:] = img
+
+plt.imshow(spectrograms[30,:,:]); plt.show()
+
+#use this method for computing mean and stdev
+avg_px = np.mean(spectrograms)
+stdev_px = np.std(spectrograms)
+print(avg_px, stdev_px)
+
+
+# The actual step of normalizing:
+new_spectrograms = (spectrograms - avg_px)/(stdev_px + 1E-6)
+
+for i in range(len(df_xtrain)):
+    image = new_spectrograms[i,:,:]
+    # transform them before saving them to a file, 
+    # the NumpyDataset class will do that as it loads in numpy arrays and passes it to the model for training
+    # image = image.data_transforms 
+    # Save the normalized image array to a file
+    # look up fstrings to understand what this comand does, I also save it to a different folder called X_normalized
+    np.save(f'data_processed_f/train/X_normalized/{i:06d}.npy', image)
+
+
+#unnormalize
+inverse = 1/(stdev_px + 1E-6)
+old_spectrograms = (new_spectrograms)/inverse + avg_px
+
+
