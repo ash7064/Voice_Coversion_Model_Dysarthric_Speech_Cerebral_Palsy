@@ -1,0 +1,59 @@
+def crop_audio_clip(audio_path, preserve_beginning_ms=100, preserve_end_ms=100):
+    """
+    Crop the audio file to remove white noise at the beginning and end while allowing 
+    different amounts of white noise to be preserved at the start and end of the audio. 
+    Negative values for preservation will include all audio from the beginning or end respectively.
+
+    Parameters:
+    - audio_path (str): Path to the input audio file.
+    - preserve_beginning_ms (int): Milliseconds of white noise to preserve at the beginning of the audio.
+                                   Negative values mean all audio from the beginning is preserved.
+    - preserve_end_ms (int): Milliseconds of white noise to preserve at the end of the audio.
+                             Negative values mean all audio from the end is preserved.
+
+    Returns:
+    - cropped_audio (np.ndarray): The cropped audio signal.
+    - sr (int): Sample rate of the audio file.
+    """
+
+    # Load the audio file
+    y, sr = librosa.load(audio_path, sr=None)
+    
+    # Compute the short-time energy of the audio signal
+    hop_length = int(sr * 0.010)  # 10ms hop
+    frame_length = int(sr * 0.020)  # 20ms frame
+    energy = np.array([
+        np.sum(np.abs(y[i:i+frame_length]**2))
+        for i in range(0, len(y), hop_length)
+    ])
+    
+    # Normalize the energy
+    energy = (energy - np.min(energy)) / (np.max(energy) - np.min(energy))
+    
+    # Define a threshold above which the signal is considered "speech"
+    threshold = 0.01  # This threshold can be adjusted based on the specific characteristics of the audio
+    
+    # Find where energy is above the threshold
+    indices = np.where(energy > threshold)[0]
+    if len(indices) == 0:
+        return y, sr  # Return the original if no speech is detected
+
+    # Convert indices to sample indices
+    start_idx = indices[0] * hop_length
+    end_idx = indices[-1] * hop_length + frame_length
+
+    # Adjust the start and end indices based on the preservation parameters
+    if preserve_beginning_ms >= 0:
+        start_idx = max(start_idx - preserve_beginning_ms * sr // 1000, 0)
+    else:
+        start_idx = 0
+
+    if preserve_end_ms >= 0:
+        end_idx = min(end_idx + preserve_end_ms * sr // 1000, len(y))
+    else:
+        end_idx = len(y)
+
+    # Crop the audio
+    cropped_audio = y[start_idx:end_idx]
+
+    return cropped_audio, sr
