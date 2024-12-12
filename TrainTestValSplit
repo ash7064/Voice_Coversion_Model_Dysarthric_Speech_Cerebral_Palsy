@@ -1,0 +1,89 @@
+## Making Female Dysarthric & Control Pairs
+# Filter both dataframes so that they both have the same common Text prompts
+common_values = dysarthric_F_df[dysarthric_F_df['Text Prompt'].isin(CONTROL_F_df['Text Prompt'])]['Text Prompt']
+print(len(common_values))
+
+filtered_dysarthric_F_df = dysarthric_F_df[dysarthric_F_df['Text Prompt'].isin(common_values)]
+filtered_control_F_df = CONTROL_F_df[CONTROL_F_df['Text Prompt'].isin(common_values)]
+print(filtered_control_F_df.shape)
+print(filtered_dysarthric_F_df.shape)
+
+filtered_dysarthric_F_df.drop(['patient_ID', 'sessionID', 'class'], axis = 1, inplace=True)
+filtered_control_F_df.drop(['patient_ID', 'sessionID', 'class'], axis = 1, inplace=True)
+
+print(filtered_control_F_df.shape)
+print(filtered_dysarthric_F_df.shape)
+
+# Create a temporary key for merging to get cartesian product
+filtered_control_F_df['key'] = 1
+filtered_dysarthric_F_df['key'] = 1
+
+merged_df = pd.merge(filtered_dysarthric_F_df,filtered_control_F_df,  on=['key', 'Text Prompt'], suffixes=('_X', '_Y'))
+merged_df.drop('key', axis=1, inplace=True)
+
+merged_df
+
+from sklearn.model_selection import train_test_split
+train_ratio = 0.7
+validation_ratio = 0.2
+test_ratio = 0.1
+assert ((train_ratio + validation_ratio + test_ratio- 1.0)<=0.0001), "must sum to 1"
+
+train_data, temp_data = train_test_split(merged_df, test_size=1 - train_ratio, shuffle=True, random_state=0)
+validation_ratio_adjusted = validation_ratio / (test_ratio + validation_ratio)
+validation_data, test_data = train_test_split(temp_data, test_size=1 - validation_ratio_adjusted,  shuffle=True, random_state=0)
+print(f"Total records: {len(merged_df)}")
+print(f"Training records: {len(train_data)} ({len(train_data)/len(merged_df)*100:.2f}%)")
+print(f"Validation records: {len(validation_data)} ({len(validation_data)/len(merged_df)*100:.2f}%)")
+print(f"Testing records: {len(test_data)} ({len(test_data)/len(merged_df)*100:.2f}%)")
+
+import shutil
+def create_directories(base_path):
+    """ Create directory structure """
+    for split in ['train', 'test', 'validation']:
+        for subfolder in ['X', 'Y']:
+            os.makedirs(os.path.join(base_path, split, subfolder), exist_ok=True)
+            
+def copy_files(df, base_path, split, counter):
+    """ Copy files and update the dataframe with new filenames. """
+    new_filenames = []  # List to store new filenames for updating the DataFrame
+    for index, row in df.iterrows():
+        src_path_x = row['Wav Filepath_X']
+        src_path_y = row['Wav Filepath_Y']
+        new_file_name = f"{counter:06d}.wav"
+        new_filenames.append(new_file_name)  # Append new filename to the list
+
+        # Destination paths
+        dst_path_x = os.path.join(base_path, split, 'X', new_file_name)
+        dst_path_y = os.path.join(base_path, split, 'Y', new_file_name)
+
+        # Copy files
+        shutil.copy(src_path_x, dst_path_x)
+        shutil.copy(src_path_y, dst_path_y)
+        counter += 1
+
+    # Add new filenames to the DataFrame
+    df['New Filename'] = new_filenames
+    return counter, df  # Return updated DataFrame
+
+def process_dataframes(train_df, test_df, val_df, base_path):
+    """ Process each DataFrame, copy files, update DataFrames with new filenames, and save them as CSVs. """
+    create_directories(base_path)
+    counter = 0  # Start counter at 0
+
+    # Process and save the train DataFrame
+    counter, train_df_updated = copy_files(train_df, base_path, 'train', counter)
+    train_df_updated.to_csv(os.path.join(base_path, 'train', 'updated_train.csv'), index=False)
+
+    # Process and save the test DataFrame
+    counter, test_df_updated = copy_files(test_df, base_path, 'test', counter)
+    test_df_updated.to_csv(os.path.join(base_path, 'test', 'updated_test.csv'), index=False)
+
+    # Process and save the validation DataFrame
+    counter, val_df_updated = copy_files(val_df, base_path, 'validation', counter)
+    val_df_updated.to_csv(os.path.join(base_path, 'validation', 'updated_validation.csv'), index=False)
+
+    return train_df_updated, test_df_updated, val_df_updated
+
+base_directory = 'data_processed_f'
+train_df, test_df, val_df = process_dataframes(train_data, test_data, validation_data, base_directory)
