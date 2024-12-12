@@ -1,0 +1,200 @@
+#model - Convolutional Variational Autoencoder
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+KERNEL_SIZE = 3 # (3, 3) kernel
+
+IMAGE_CHANNELS = 1 # number of input image channels
+LATENT_DIM = 512 # latent dimension for sampling
+
+
+class InputEchoLayer(nn.Module):
+    """
+    A pass-through layer that echoes the input without any transformation.
+
+    This layer is primarily used for debugging or when no modification to the input
+    tensor is required in a sequential model architecture.
+    """
+    def __init__(self):
+        super(InputEchoLayer, self).__init__()
+
+    def forward(self, x):
+        """
+        Forward pass for the InputEchoLayer.
+
+        Parameters:
+        - x (torch.Tensor): The input tensor.
+
+        Returns:
+        - torch.Tensor: The output tensor, identical to the input tensor.
+        """
+        return x
+
+
+# define a Conv VAE
+class ConvVAE(nn.Module):
+    """
+    Convolutional Variational Autoencoder (VAE) with an architecture featuring
+    convolutional layers for encoding and convolutional transpose layers for decoding.
+
+    Attributes:
+    - encoders (nn.ModuleList): Sequential list of convolutional layers for the encoder part.
+    - decoders (nn.ModuleList): Sequential list of convolutional transpose layers for the decoder part.
+    - fc1, fc_mu, fc_log_var, fc2 (nn.Linear): Fully connected layers for embedding and generating
+      latent variables.
+
+    Parameters:
+    - image_channels (int): Number of input image channels.
+    - kernel_size (int): Size of the convolutional kernels.
+    - latent_dim (int): Dimensionality of the latent space.
+    """
+    def __init__(self):
+        super(ConvVAE, self).__init__()
+        self.input_echo = InputEchoLayer()  # This will echo the input
+        # encoder
+        self.enc1 = nn.Conv2d(
+            in_channels=IMAGE_CHANNELS, out_channels=512, kernel_size=KERNEL_SIZE, 
+            stride=2, padding=1
+        )
+        self.enc2 = nn.Conv2d(
+            in_channels=512, out_channels=256, kernel_size=KERNEL_SIZE, 
+            stride=2, padding=1
+        )
+        self.enc3 = nn.Conv2d(
+            in_channels=256, out_channels=128, kernel_size=KERNEL_SIZE, 
+            stride=2, padding=1
+        )
+        self.enc4 = nn.Conv2d(
+            in_channels=128, out_channels=64, kernel_size=KERNEL_SIZE, 
+            stride=2, padding=1
+        )
+        self.enc5 = nn.Conv2d(
+            in_channels=64, out_channels=32, kernel_size=KERNEL_SIZE, 
+            stride=(2,1), padding=(1,1)
+        )
+        self.enc6 = nn.Conv2d(
+            in_channels=32, out_channels=16, kernel_size=KERNEL_SIZE, 
+            stride=2, padding=1
+        )
+        # fully connected layers for learning representations
+        self.fc1 = nn.Linear(16, 128)
+        self.fc_mu = nn.Linear(128, LATENT_DIM)
+        self.fc_log_var = nn.Linear(128, LATENT_DIM)
+        self.fc2 = nn.Linear(LATENT_DIM, 128)
+        # decoder 
+        self.dec1 = nn.ConvTranspose2d(
+            in_channels=16, out_channels=16, kernel_size=KERNEL_SIZE, 
+            stride=2, padding=1,
+            output_padding=1
+        )
+        self.dec2 = nn.ConvTranspose2d(
+            in_channels=16, out_channels=32, kernel_size=KERNEL_SIZE, 
+            stride=(1,2), padding=(1,1), 
+            output_padding=(0,1)
+        )
+        self.dec2_1 = nn.ConvTranspose2d(
+            in_channels=32, out_channels=32, kernel_size=KERNEL_SIZE, 
+            stride=(1,2), padding=(1,1), 
+            output_padding=(0,1)
+        )
+        self.dec2_2 = nn.ConvTranspose2d(
+            in_channels=32, out_channels=32, kernel_size=KERNEL_SIZE, 
+            stride=(1,2), padding=(1,1), 
+            output_padding=(0,1)
+        )
+        self.dec3 = nn.ConvTranspose2d(
+            in_channels=32, out_channels=64, kernel_size=KERNEL_SIZE, 
+            stride=(1,2), padding=(1,1),
+            output_padding=(0,1)
+        )
+        self.dec4 = nn.ConvTranspose2d(
+            in_channels=64, out_channels=128, kernel_size=KERNEL_SIZE, 
+            stride=2, padding=1,
+            output_padding=1
+        )
+        self.dec5 = nn.ConvTranspose2d(
+            in_channels=128, out_channels=IMAGE_CHANNELS, kernel_size=KERNEL_SIZE, 
+            stride=2, padding=1,
+            output_padding=1
+        )
+        self.dec6 = nn.ConvTranspose2d(
+            in_channels=IMAGE_CHANNELS, out_channels=IMAGE_CHANNELS, kernel_size=KERNEL_SIZE, 
+            stride=2, padding=1,
+            output_padding=1
+        )
+    def reparameterize(self, mu, log_var):
+        """
+        Performs the reparameterization trick to sample from the distribution
+        given by mu and log_var.
+
+        Parameters:
+        - mu (torch.Tensor): The mean vector of the latent Gaussian distribution.
+        - log_var (torch.Tensor): The log variance vector of the latent Gaussian distribution.
+
+        Returns:
+        - torch.Tensor: Sampled z vector from the distribution.
+        """
+        std = torch.exp(0.5*log_var) # standard deviation
+        eps = torch.randn_like(std) # `randn_like` as we need the same size
+        sample = mu + (eps * std) # sampling
+        return sample
+ 
+    def forward(self, x):
+        """
+        Defines the forward pass of the ConvVAE.
+
+        Parameters:
+        - x (torch.Tensor): Input tensor of shape (batch_size, channels, height, width).
+
+        Returns:
+        - tuple(torch.Tensor, torch.Tensor, torch.Tensor): Tuple containing the reconstructed image,
+          mu vector, and log_var vector.
+        """
+        # encoding
+        x = self.input_echo(x)
+        x = F.relu(self.enc1(x))
+        x = F.relu(self.enc2(x))
+        x = F.relu(self.enc3(x))
+        x = F.relu(self.enc4(x))
+        x = F.relu(self.enc5(x))
+        x = F.relu(self.enc6(x))
+        batch, _, _, _ = x.shape
+        x = F.adaptive_avg_pool2d(x, 1).reshape(batch, -1)
+        hidden = self.fc1(x)
+        # get `mu` and `log_var`
+        mu = self.fc_mu(hidden)
+        log_var = self.fc_log_var(hidden)
+        # get the latent vector through reparameterization
+        z = self.reparameterize(mu, log_var)
+        z = self.fc2(z)
+        z = z.view(-1, 16,4,2)
+ 
+        # decoding
+        x = F.relu(self.dec1(z))
+        x = F.relu(self.dec2(x))
+        x = F.relu(self.dec2_1(x))
+        x = F.relu(self.dec2_2(x))
+        x = F.relu(self.dec3(x))
+        x = F.relu(self.dec4(x))
+        x = F.relu(self.dec5(x))
+        x = F.relu(self.dec6(x))
+        reconstruction = torch.sigmoid(self.dec6(x))
+        return reconstruction, mu, log_var
+
+    
+if __name__ == "__main__":
+    """
+    Main script for initializing the ConvVAE model, moving it to GPU if available,
+    and printing a summary of the model architecture given a specific input size.
+    """
+    from torchsummary import summary
+    model = ConvVAE()
+
+    # Transfer the model to GPU if available
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+
+    # Print the summary of the model, given a sample input of size (1,256, 63)
+    # Images are in the order (number_channels, X, Y) dimensions
+    summary(model, input_size=(1, 128, 1024))
