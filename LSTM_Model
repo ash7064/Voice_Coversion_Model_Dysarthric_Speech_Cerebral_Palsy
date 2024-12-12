@@ -1,0 +1,207 @@
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
+import torch.nn as nn
+
+import torch.optim as optim
+import torch.nn.functional as F
+from torch.utils.data import DataLoader, TensorDataset
+
+#Implementing an LSTM Cell
+
+class LSTMCell(nn.Module):
+    def __init__(self, input_size, hidden_size):
+        super(LSTMCell, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.weights_ih = nn.Parameter(torch.randn(4 * hidden_size, input_size))
+        self.weights_hh = nn.Parameter(torch.randn(4 * hidden_size, hidden_size))
+        self.bias = nn.Parameter(torch.randn(4 * hidden_size))
+
+    def forward(self, input, hidden):
+        hx, cx = hidden
+        gates = (torch.mm(input, self.weights_ih.t()) + torch.mm(hx, self.weights_hh.t()) + self.bias)
+        ingate, forgetgate, cellgate, outgate = gates.chunk(4, 1)
+
+        ingate = torch.sigmoid(ingate)
+        forgetgate = torch.sigmoid(forgetgate)
+        cellgate = torch.tanh(cellgate)
+        outgate = torch.sigmoid(outgate)
+
+        cy = (forgetgate * cx) + (ingate * cellgate)
+        hy = outgate * torch.tanh(cy)
+
+        return hy, cy
+
+
+#Implementing a Model that Uses the Prior LSTM Cell
+
+class AudioClassifierCustomLSTM(nn.Module):
+    def __init__(self, input_dim=1, hidden_dim=128, output_dim=2):
+        super(AudioClassifierCustomLSTM, self).__init__()
+        self.lstm_cell = LSTMCell(input_dim, hidden_dim)
+        self.fc = nn.Linear(hidden_dim, output_dim)
+    
+    def forward(self, x):
+        batch_size, seq_len, _ = x.size()
+        hx = torch.zeros(batch_size, self.lstm_cell.hidden_size)
+        cx = torch.zeros(batch_size, self.lstm_cell.hidden_size)
+        for i in range(seq_len):
+            hx, cx = self.lstm_cell(x[:, i, :], (hx, cx))
+        out = self.fc(hx)
+        return out
+
+# Example instantiation and forward pass
+custom_model = AudioClassifierCustomLSTM()
+input_tensor = torch.randn(10, 8000, 1)  # Example input
+output_custom = custom_model(input_tensor)
+print(output_custom.shape)  # Should be [10, 2] for batch size of 10 and 2 output classes
+
+
+torch.onnx.export(custom_model,               # Your PyTorch model
+                input_tensor,                        # Dummy input data
+                "AudioClassifierCustomLSTM.onnx",        # Output ONNX filename
+                verbose=False,       # Set to True for detailed output
+                opset_version=11,
+                do_constant_folding=False)
+
+
+
+#Using LSTM module from pytorch instead
+
+class AudioClassifierLSTM(nn.Module):
+    def __init__(self, input_dim=1, hidden_dim=128, num_layers=1, output_dim=2):
+        super(AudioClassifierLSTM, self).__init__()
+        self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers, batch_first=True)
+        self.fc = nn.Linear(hidden_dim, output_dim)
+    
+    def forward(self, x):
+        # x: [batch_size, seq_length, features]
+        _, (hn, _) = self.lstm(x)  # hn: [num_layers, batch_size, hidden_dim]
+        # Use the last hidden state
+        out = self.fc(hn[-1])
+        return out
+    
+    
+# Example instantiation and forward pass
+model = AudioClassifierLSTM()
+input_tensor = torch.randn(10, 8000, 1)  # Example input
+output = model(input_tensor)
+print(output.shape)
+
+
+def train_model(model, dataloader, epochs=1):
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
+
+    model.train()
+    for epoch in range(epochs):
+        running_loss = 0.0
+        for i, (inputs, labels) in enumerate(dataloader):
+            optimizer.zero_grad()
+            outputs = model(inputs)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
+            running_loss += loss.item()
+        print(f"Epoch {epoch + 1}, Loss: {running_loss / len(dataloader)}")
+
+# Instantiate and train the models
+model_lstm = AudioClassifierLSTM()
+model_custom_lstm = AudioClassifierCustomLSTM()
+
+print("Training PyTorch's built-in LSTM model")
+train_model(model_lstm, dataloader)
+
+#print("Training custom LSTM model")
+#train_model(model_custom_lstm, dataloader)
+
+
+model_lstm.eval()
+
+# Create a dummy input tensor (batch size, sequence length, input size)
+dummy_input = torch.randn(1, 50, 20)
+
+# Export the model
+torch.onnx.export(model,               # model being run
+                  dummy_input,         # model input (or a tuple for multiple inputs)
+                  "model.onnx",        # where to save the model (can be a file or file-like object)
+                  export_params=True,  # store the trained parameter weights inside the model file
+                  opset_version=10,    # the ONNX version to export the model to
+                  do_constant_folding=True,  # whether to execute constant folding for optimization
+                  input_names = ['input'],   # the model's input names
+                  output_names = ['output'], # the model's output names
+                  dynamic_axes={'input' : {0 : 'batch_size'},    # variable length axes
+                                'output' : {0 : 'batch_size'}})
+
+print("Model has been converted to ONNX.")
+
+# This section goes over how to convert a classifier's outputs to probabilities for classification
+
+# Assuming 'logits' is the output of your model
+logits = torch.randn(1, 10)  # Example logits for 10 classes
+
+# Apply softmax on the logits
+probabilities = F.softmax(logits, dim=1)
+
+print("Probabilities:", probabilities)
+print("Sum of probabilities:", probabilities.sum())  # Should be 1
+
+
+
+#Sequence to Sequence Models
+
+def generate_waveform(freq, length=16000, sample_rate=16000):
+    t = np.linspace(0, length/sample_rate, num=length)
+    waveform = np.sin(2 * np.pi * freq * t)
+    return torch.tensor(waveform, dtype=torch.float32)
+
+class AudioWaveformDataset(Dataset):
+    def __init__(self, size=100, length=16000):
+        self.size = size
+        self.length = length
+        self.data = [generate_waveform(np.random.randint(100, 500), length=self.length) for _ in range(size)]
+        self.targets = [generate_waveform(np.random.randint(100, 500), length=self.length) for _ in range(size)]
+        
+    def __len__(self):
+        return self.size
+    
+    def __getitem__(self, idx):
+        return self.data[idx], self.targets[idx]
+
+# Create dataset and DataLoader
+dataset = AudioWaveformDataset()
+dataloader = DataLoader(dataset, batch_size=10, shuffle=True)
+
+a = next(iter(dataloader))
+print(a[0].shape, a[1].shape)
+
+class Seq2SeqLSTM(nn.Module):
+    def __init__(self, input_dim, hidden_dim, num_layers=1):
+        super(Seq2SeqLSTM, self).__init__()
+        self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers, batch_first=True)
+        self.decoder = nn.Linear(hidden_dim, input_dim)
+    
+    def forward(self, x):
+        outputs, (hn, cn) = self.lstm(x)
+        decoded = self.decoder(outputs)
+        return decoded
+
+model = Seq2SeqLSTM(input_dim=1, hidden_dim=128)
+
+criterion = nn.MSELoss()
+optimizer = optim.Adam(model.parameters(), lr=0.001)
+
+num_epochs = 20
+for epoch in range(num_epochs):
+    for inputs, targets in dataloader:
+        inputs = inputs.unsqueeze(2)  # Shape: [batch, seq_len, features]
+        targets = targets.unsqueeze(2)
+
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, targets)
+        loss.backward()
+        optimizer.step()
+
+    print(f'Epoch {epoch+1}, Loss: {loss.item()}')
