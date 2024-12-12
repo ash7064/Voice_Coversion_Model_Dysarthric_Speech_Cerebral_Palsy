@@ -198,3 +198,589 @@ if __name__ == "__main__":
     # Print the summary of the model, given a sample input of size (1,256, 63)
     # Images are in the order (number_channels, X, Y) dimensions
     summary(model, input_size=(1, 128, 1024))
+
+
+#utils
+
+import os
+import imageio
+import numpy as np
+import torchvision.transforms as transforms
+import matplotlib.pyplot as plt
+from torchvision.utils import save_image
+
+
+to_pil_image = transforms.ToPILImage()
+
+
+def get_filenames(root_dir, queries=[]):
+    """
+    Recursively walks through a directory, returning a list of file paths that match one or more query strings.
+
+    This function searches through all directories and subdirectories starting from `root_dir` and collects 
+    full paths of files that contain any of the specified substrings in their filenames. The search is 
+    case-insensitive. If `queries` is a string, it will be used as a single query. If `queries` is a list of 
+    strings, files matching any of the queries will be included.
+
+    Parameters:
+    - root_dir (str): The directory path from which the file search will begin.
+    - queries (list of str or str, optional): A list of substring queries to search for within file names. 
+        If a single string is provided, it is used as the sole query. If omitted or an empty list is provided,
+        all files in the directory will be included.
+
+    Returns:
+    - list of str: A sorted list of full file paths for files that match the given query or queries. If no 
+        files match, an empty list is returned.
+
+    Example:
+    - get_filenames("/path/to/dir", queries=["report", "2021"])
+    This will return all files under "/path/to/dir" that contain "report" or "2021" in their filenames.
+    """
+    file_list = []
+    for current_location, sub_directories, files in os.walk(root_dir):
+        if files:
+            for filepath in files:
+                if isinstance(queries, str):
+                    if (queries.lower() in filepath.lower()):
+                        file_list.append(os.path.join(current_location, filepath))
+                elif isinstance(queries, list):
+                    if any(query.lower() in filepath.lower() for query in queries):
+                        file_list.append(os.path.join(current_location, filepath))
+    file_list.sort()
+    return file_list
+
+
+def load_filenames(base_path):
+    """
+    Load filenames of .npy files from the specified base directory.
+
+    This function searches for .npy files in the 'X_normalized' and 'Y_normalized'
+    subdirectories within the given base directory. It returns two lists
+    containing the paths to the .npy files found in these subdirectories.
+
+    Parameters:
+    - base_path (str): The base directory path containing the 'X_normalized' and 'Y_normalized' subdirectories.
+
+    Returns:
+    - tuple of lists: A tuple containing two lists:
+        - x_files (list of str): List of file paths to the .npy files in the 'X_normalized' subdirectory.
+        - y_files (list of str): List of file paths to the .npy files in the 'Y_normalized' subdirectory.
+    """
+    x_files = get_filenames(os.path.join(base_path, 'X_normalized'), queries='.npy')
+    y_files = get_filenames(os.path.join(base_path, 'Y_normalized'), queries='.npy')
+    return x_files, y_files
+
+
+def pair_filenames(x_files, y_files):
+    """
+    Pair filenames from two lists based on their basenames.
+
+    This function takes two lists of file paths and pairs them based on
+    matching basenames. It assumes that files in the `y_files` list have
+    the same basenames as those in the `x_files` list. If a match is found,
+    the pair (x_file, y_file) is added to the result list.
+
+    Parameters:
+    - x_files (list of str): List of file paths for X files.
+    - y_files (list of str): List of file paths for Y files.
+
+    Returns:
+    - list of tuples: A list of tuples, where each tuple contains a matched
+      pair of file paths (x_file, y_file) with the same basename.
+    """
+    paired_files = []
+    for x_file in x_files:
+        basename = os.path.basename(x_file)
+        # Assuming Y files have the exact same naming as X files.
+        y_file = [y for y in y_files if os.path.basename(y) == basename]
+        if y_file:
+            paired_files.append((x_file, y_file[0]))
+    return paired_files
+
+
+def image_to_vid(images):
+    """
+    Converts a list of image tensors into a GIF and saves it.
+
+    This function takes a list of image tensors, converts each tensor to a PIL image,
+    and saves these images as a GIF file.
+
+    Parameters:
+    - images (list of torch.Tensor): A list of tensors representing images.
+
+    The function saves the resulting GIF to a fixed relative path 'outputs_vae/generated_images.gif'.
+    """
+    imgs = [np.array(to_pil_image(img)) for img in images]  # Convert tensors to PIL images and then to arrays
+    imageio.mimsave('outputs_vae/generated_images.gif', imgs)  # Save as GIF
+    
+    
+def save_reconstructed_images(recon_images, epoch):
+    """
+    Saves reconstructed images to a JPEG file.
+
+    This function saves a batch of reconstructed images to a JPEG file, naming the file
+    based on the epoch number to track progress across different epochs.
+
+    Parameters:
+    - recon_images (torch.Tensor): A tensor containing the reconstructed images.
+    - epoch (int): The current epoch number, used for naming the output file.
+
+    The images are saved to 'outputs/' with a filename that includes the epoch number.
+    """
+    save_image(recon_images.cpu(), f"outputs/output{epoch}.jpg")  # Save image file
+    np.save('outputs_vae/generated_spectrograms/output' + str(epoch) + '.npy', recon_images.cpu()) # Save image file
+
+
+'''def save_reconstructed_images(recon_images, epoch):
+    """
+    Saves reconstructed images to a npy file.
+
+    This function saves a batch of reconstructed images to a npy file, naming the file
+    based on the epoch number to track progress across different epochs.
+
+    Parameters:
+    - recon_images (torch.Tensor): A tensor containing the reconstructed images.
+    - epoch (int): The current epoch number, used for naming the output file.
+
+    The images are saved to 'outputs/' with a filename that includes the epoch number.
+    """
+    avg_px, stdev_px = -46.37011188902046, 13.702676790099314
+    recon_images = (recon_images)(stdev_px +  + 1E-6) + avg_px
+
+    np.save('/Users/harish/Downloads/starter_code/generated_spectrograms/output' + str(epoch) + '.npy', recon_images.cpu()) # Save image file'''
+    
+    
+
+def save_loss_plot(train_loss, valid_loss):
+    """
+    Saves a plot of training and validation loss over epochs.
+
+    This function generates and saves a line plot showing the training and validation loss over
+    each epoch, which helps in monitoring the model's learning progress.
+
+    Parameters:
+    - train_loss (list of float): A list of training loss values per epoch.
+    - valid_loss (list of float): A list of validation loss values per epoch.
+
+    The plot is saved as 'loss.jpg' in '../outputs/' and also displayed in the output cell.
+    """
+    plt.figure(figsize=(10, 7))  # Set figure size
+    plt.plot(train_loss, color='orange', label='train loss')  # Plot training loss
+    plt.plot(valid_loss, color='red', label='validataion loss')  # Plot validation loss
+    plt.xlabel('Epochs')  # Label x-axis
+    plt.ylabel('Loss')  # Label y-axis
+    plt.legend()  # Show legend
+    plt.savefig('outputs_vae/loss.jpg')  # Save the figure
+    plt.show()  # Display the plot
+
+
+
+
+#train
+
+import numpy as np
+
+import torch
+import torch.optim as optim
+import torch.nn as nn
+import torchvision.transforms as transforms
+import torchvision
+import matplotlib
+from torch.utils.data import DataLoader, Dataset
+from torchvision.utils import make_grid
+import torchvision.datasets as datasets
+
+#from model import ConvVAE
+#from utils import save_reconstructed_images, image_to_vid, save_loss_plot, load_filenames, pair_filenames
+
+matplotlib.style.use('ggplot')
+
+from tqdm import tqdm
+import torch
+
+def final_loss(bce_loss, mu, logvar):
+	"""
+	Compute the final loss for a Variational Autoencoder, which is the sum of the Binary Cross-Entropy (BCE) loss
+	and the Kullback-Leibler (KL) divergence. The KL divergence measures how one probability distribution diverges
+	from a second, expected probability distribution.
+
+	Parameters:
+	- bce_loss (torch.Tensor): The reconstruction loss (binary cross-entropy).
+	- mu (torch.Tensor): The mean of the latent variable distribution.
+	- logvar (torch.Tensor): The logarithm of the variance of the latent variable distribution.
+
+	Returns:
+	- torch.Tensor: The total loss, which is the sum of the BCE loss and the KL divergence.
+
+	The KL divergence is computed as:
+	KL = 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
+	"""
+	BCE = bce_loss 
+	KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+	return BCE + KLD
+
+
+class NumpyDataset(Dataset):
+	"""
+	Custom dataset for loading numpy files as tensors for PyTorch models.
+
+	Attributes:
+		pairs (list of tuples): List of tuples, where each tuple contains the paths to the corresponding 'x' and 'y' numpy files.
+		transform (callable, optional): Optional transform to be applied on a sample.
+
+	Methods:
+		__len__(): Returns the number of items in the dataset.
+		__getitem__(idx): Retrieves a sample and its label at the specified index `idx`.
+	"""
+	def __init__(self, pairs, transform = None):
+		
+		"""
+		Initializes the NumpyDataset with file paths and an optional transform.
+
+		Parameters:
+			pairs (list of tuples): List containing tuples of (x_file_path, y_file_path).
+			transform (callable, optional): Transform to be applied on each data sample.
+		"""
+		self.pairs = pairs
+
+		self.transform = transform
+	
+		
+
+	def __len__(self):
+		return len(self.pairs)
+
+	def __getitem__(self, idx):
+		x_path, y_path = self.pairs[idx]
+
+
+		#(128, 1024)
+		x = np.load(x_path)
+		y = np.load(y_path)
+
+
+		# (128, 1024))
+		#x = np.pad(x, ((0, 0), (0, 1)), mode='constant', constant_values=0)
+		#y = np.pad(y, ((0, 0), (0, 1)), mode='constant', constant_values=0)
+		
+
+		#(128, 1024)
+		x = np.expand_dims(x, axis=0)
+		y = np.expand_dims(y, axis=0)
+
+		x = torch.from_numpy(x).float()
+		y = torch.from_numpy(y).float()
+
+		if self.transform:
+			x = self.transform(x)
+			y = self.transform(y)
+
+		return x, y
+
+
+def create_dataloader(base_path, batch_size=32, shuffle=True):
+	x_files, y_files = load_filenames(base_path)
+	pairs = pair_filenames(x_files, y_files)
+	
+	dataset = NumpyDataset(
+		pairs, 
+	)  
+
+	dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
+	return dataloader
+
+
+
+
+def train(model, dataloader, device, optimizer, criterion):
+	model.train()  # Set the model to training mode
+	running_loss = 0.0
+	counter = 0
+	# Initialize tqdm loop
+	progress_bar = tqdm(enumerate(dataloader), total=len(dataloader), desc="Training")
+	
+	for i, (x, y) in progress_bar:
+		counter += 1
+		x = x.to(device)  # Move data to the device
+		y = y.to(device)  # Move targets to the device
+		optimizer.zero_grad()  # Clear the gradients
+		reconstruction, mu, log_var = model(x)  # Forward pass, assuming your model only outputs reconstruction
+		loss = criterion(reconstruction, y)  # Compute loss
+		loss.backward()  # Compute gradients
+		running_loss += loss.item()  # Aggregate the loss
+		optimizer.step()  # Update model parameters
+		
+		# Update tqdm postfix to display the running loss
+		progress_bar.set_postfix({'train loss': loss.item()})
+		
+		
+	train_loss = running_loss / counter  # Average loss
+	return train_loss
+
+def validate(model, dataloader, device, criterion):
+	model.eval()  # Set the model to evaluation mode
+	running_loss = 0.0
+	counter = 0
+	recon_images = None
+	# Initialize tqdm loop
+	progress_bar = tqdm(enumerate(dataloader), total=len(dataloader), desc="Testing")
+	
+	with torch.no_grad():  # Disable gradient computation
+		for i, (x, y) in progress_bar:
+			counter += 1
+			x = x.to(device) 
+			y = y.to(device)
+			reconstruction, mu, log_var = model(x)  # Forward pass
+			loss = criterion(reconstruction, y)  # Compute loss
+			running_loss += loss.item()  # Aggregate the loss
+
+			if i == len(dataloader) - 1:  # Last batch
+				recon_images = reconstruction  # Save reconstructed images for visualization
+	val_loss = running_loss / counter  # Average loss
+	print(f"Average Loss: {val_loss}")
+	return val_loss, recon_images
+
+
+
+if __name__ == "__main__":
+
+	device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+	# initialize the model
+	model = ConvVAE().to(device)
+	# set the learning parameters
+	lr = 0.20
+	epochs = 8
+	batch_size = 4
+	optimizer = optim.Adam(model.parameters(), lr=lr)
+	criterion = nn.MSELoss(reduction='mean')
+	# a list to save all the reconstructed images in PyTorch grid format
+	grid_images = []
+
+	# Assuming create_dataloader is already defined
+	train_loader = create_dataloader('starter_code/data_processed_f/test', batch_size=batch_size, shuffle=True)
+	test_loader = create_dataloader('starter_code/data_processed_f/test', batch_size=batch_size, shuffle=False)
+	validation_loader = create_dataloader('starter_code/data_processed_f/validation', batch_size=batch_size, shuffle=False)
+
+
+	train_loss = []
+	valid_loss = []
+	for epoch in range(epochs):
+		print(f"Epoch {epoch+1} of {epochs}")
+		train_epoch_loss = train(model, train_loader, device, optimizer, criterion)
+		valid_epoch_loss, recon_images = validate(model, validation_loader, device, criterion)
+		train_loss.append(train_epoch_loss)
+		valid_loss.append(valid_epoch_loss)
+		# save the reconstructed images from the validation loop
+		save_reconstructed_images(recon_images, epoch+1)
+		# convert the reconstructed images to PyTorch image grid format
+		image_grid = make_grid(recon_images.detach().cpu())
+		grid_images.append(image_grid)
+		print(f"Train Loss: {train_epoch_loss:.4f}")
+		print(f"Val Loss: {valid_epoch_loss:.4f}")
+		
+		
+	# save the reconstructions as a .gif file
+	image_to_vid(grid_images)
+	# save the loss plots to disk
+	save_loss_plot(train_loss, valid_loss)
+	print('TRAINING COMPLETE')
+	
+	# Save model
+	torch.save(model, "/Users/harish/Desktop/ScienceFair2425/starter_code/ConvVAE_model.pth")
+	
+	
+	test_loss, recon_imgs = validate(model, test_loader, device, criterion)
+	print(f"Test Loss: {test_loss:.4f}")
+
+
+
+
+
+def de_normalize_and_save_waveform(normalized_spectrogram_path, mean, var, sr=16000):
+    # Load the normalized spectrogram
+    S_normalized = np.load(normalized_spectrogram_path)
+    print(S_normalized.shape)
+    # De-normalize the spectrogram
+    S_dB = (S_normalized * (np.sqrt(var)+0.000000001)) + mean
+    
+    
+    # Rescale the spectrogram
+    original_y_size, original_x_size = S_dB.shape
+    # Resize the spectrogram to 1/SCALEx its original size
+    SCALE = 1/5.0
+    S_resized = cv2.resize(S_dB, (int(original_x_size*SCALE), int(original_y_size*SCALE)))
+    print(S_resized.shape)
+    # Convert from dB to power
+    S = librosa.db_to_power(S_dB)
+
+    # Inverse Mel Spectrogram to get the audio time series
+    y = librosa.feature.inverse.mel_to_audio(S, sr=sr, n_fft = n_fft, hop_length = hop_length, win_length=win_length)
+
+    # Save the waveform back to a .wav file
+    sf.write(f'reconstructed_{os.path.basename(normalized_spectrogram_path).split(".")[0]}.wav', y, sr)
+
+
+
+
+#infer
+
+
+import torch
+import numpy as np
+from PIL import Image
+import matplotlib.pyplot as plt
+import librosa
+
+
+import soundfile as sf
+import matplotlib.pyplot as plt
+
+
+from skimage import data, color
+from skimage.transform import rescale, resize, downscale_local_mean
+
+
+def load_model(model_path):
+   """
+   Load a pre-trained PyTorch model from the specified path.
+
+
+   Parameters:
+   - model_path (str): The file path to the saved PyTorch model.
+
+
+   Returns:
+   - torch.nn.Module: The loaded PyTorch model set to evaluation mode.
+   """
+   model = torch.load(model_path)
+   model.eval()  # Set the model to evaluation mode
+   return model
+
+
+
+
+def load_numpy(file_path):
+   """
+   Load a numpy array from a specified .npy file.
+
+
+   Parameters:
+   - file_path (str): The file path to the .npy file to be loaded.
+
+
+   Returns:
+   - numpy.ndarray: The numpy array loaded from the .npy file.
+   """
+   return np.load(file_path)
+
+
+
+
+def save_image(tensor, filename):
+   """
+   Save a single-channel tensor as an image file.
+
+
+   Parameters:
+   - tensor (torch.Tensor): A tensor representing the image to be saved.
+   - filename (str): The path where the image will be saved.
+
+
+   Side effects:
+   - Saves an image to the filesystem at the specified location.
+   """
+   image = tensor.squeeze()  # Remove channel dimension if present
+   plt.imshow(image, cmap='gray')
+   plt.axis('off')  # Turn off axis numbers and ticks
+   plt.savefig(filename, bbox_inches='tight', pad_inches=0)
+   print(f"Image saved as {filename}")
+
+
+
+
+def infer_and_save(model, input_array, output_path):
+   """
+   Perform inference using a pre-trained model on the provided input array and save the output as an image.
+
+
+   Parameters:
+   - model (torch.nn.Module): The loaded model used for inference.
+   - input_array (numpy.ndarray): The input data for the model in numpy array format.
+   - output_path (str): The path where the output image will be saved.
+
+
+   Side effects:
+   - Performs a model inference and saves the resulting image to the filesystem.
+   """
+   # Assuming the input needs to be added a channel dimension and converted to tensor
+   input_tensor = torch.from_numpy(input_array).unsqueeze(0).unsqueeze(0).float()
+   # Forward pass through the model
+   with torch.no_grad():
+       reconstruction, _, _ = model(input_tensor)
+   # Convert the output tensor to image and save
+   save_image(reconstruction.cpu().numpy()[0], output_path)
+   return reconstruction
+
+
+
+
+def save_signals(signal, save_dir, filename, sample_rate=16000):
+   save_path = os.path.join(save_dir, filename + ".wav")
+   print(save_path)
+   sf.write(save_path, signal, sample_rate)
+
+
+
+
+if __name__ == "__main__":
+   # Path to the model's state dictionary and input numpy file
+   model_path = '/Users/harish/Desktop/ScienceFair2425/starter_code/ConvVAE_model.pth'
+   input_npy_file = 'starter_code/data_processed_f/test/X_resized/003479.wav.npy'
+   original_height = 128
+   original_width = 29
+   output_image_path = 'ScienceFair2425/starter_code/output_image.png'
+
+
+   # Load model and numpy file
+   model = load_model(model_path)
+   input_array = load_numpy(input_npy_file)
+
+
+   # Perform inference and save the output image
+   spectrogram = infer_and_save(model, input_array, output_image_path)
+
+
+   # apply denormalisation
+   avg_px, stdev_px = -46.37011188902046, 13.702676790099314
+   inverse = 1/(stdev_px + 1E-6)
+   denorm_log_spec = (spectrogram)/inverse + avg_px
+   denorm_log_spec = torch.squeeze(denorm_log_spec)
+   print(denorm_log_spec.shape)
+   # reshape the log spectrogram
+   log_spectrogram = resize(
+       denorm_log_spec, (128, 29), anti_aliasing=True
+   )
+  
+   # log spectrogram -> spectrogram
+   spec = librosa.db_to_amplitude(np.load(input_npy_file))
+
+
+   # apply Griffin-Lim
+   HOP_LENGTH = 256
+   signal = librosa.istft(spec, hop_length=HOP_LENGTH)
+  
+   # append signal to "signals"
+
+
+   SAVE_DIR_GENERATED = '/Users/harish/Downloads/starter_code/generated_audio/'
+   filename = 'test'
+   save_signals(signal, SAVE_DIR_GENERATED, 'test')
+
+    
+
+   
+
+ 
+
+import IPython.display as ipd
+ipd.Audio("/Users/harish/Downloads/starter_code//generated_audio/test.wav")
