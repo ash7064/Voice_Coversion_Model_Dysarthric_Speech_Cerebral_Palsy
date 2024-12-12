@@ -1,0 +1,206 @@
+#Importing Files & Libraries
+
+import pandas as pd
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+import librosa.display
+import IPython.display as ipd
+import numpy as np
+import torch
+import torchaudio
+import tifffile as tif
+import skimage as ski
+import librosa
+import librosa.display
+import soundfile as sf
+import cv2
+import tensorflow as tf
+
+
+
+#utils
+
+import os
+import imageio
+import numpy as np
+import torchvision.transforms as transforms
+import matplotlib.pyplot as plt
+from torchvision.utils import save_image
+
+
+to_pil_image = transforms.ToPILImage()
+
+
+def get_filenames(root_dir, queries=[]):
+    """
+    Recursively walks through a directory, returning a list of file paths that match one or more query strings.
+
+    This function searches through all directories and subdirectories starting from `root_dir` and collects 
+    full paths of files that contain any of the specified substrings in their filenames. The search is 
+    case-insensitive. If `queries` is a string, it will be used as a single query. If `queries` is a list of 
+    strings, files matching any of the queries will be included.
+
+    Parameters:
+    - root_dir (str): The directory path from which the file search will begin.
+    - queries (list of str or str, optional): A list of substring queries to search for within file names. 
+        If a single string is provided, it is used as the sole query. If omitted or an empty list is provided,
+        all files in the directory will be included.
+
+    Returns:
+    - list of str: A sorted list of full file paths for files that match the given query or queries. If no 
+        files match, an empty list is returned.
+
+    Example:
+    - get_filenames("/path/to/dir", queries=["report", "2021"])
+    This will return all files under "/path/to/dir" that contain "report" or "2021" in their filenames.
+    """
+    file_list = []
+    for current_location, sub_directories, files in os.walk(root_dir):
+        if files:
+            for filepath in files:
+                if isinstance(queries, str):
+                    if (queries.lower() in filepath.lower()):
+                        file_list.append(os.path.join(current_location, filepath))
+                elif isinstance(queries, list):
+                    if any(query.lower() in filepath.lower() for query in queries):
+                        file_list.append(os.path.join(current_location, filepath))
+    file_list.sort()
+    return file_list
+
+
+def load_filenames(base_path):
+    """
+    Load filenames of .npy files from the specified base directory.
+
+    This function searches for .npy files in the 'X_normalized' and 'Y_normalized'
+    subdirectories within the given base directory. It returns two lists
+    containing the paths to the .npy files found in these subdirectories.
+
+    Parameters:
+    - base_path (str): The base directory path containing the 'X_normalized' and 'Y_normalized' subdirectories.
+
+    Returns:
+    - tuple of lists: A tuple containing two lists:
+        - x_files (list of str): List of file paths to the .npy files in the 'X_normalized' subdirectory.
+        - y_files (list of str): List of file paths to the .npy files in the 'Y_normalized' subdirectory.
+    """
+    x_files = get_filenames(os.path.join(base_path, 'X_normalized'), queries='.npy')
+    y_files = get_filenames(os.path.join(base_path, 'Y_normalized'), queries='.npy')
+    return x_files, y_files
+
+
+def pair_filenames(x_files, y_files):
+    """
+    Pair filenames from two lists based on their basenames.
+
+    This function takes two lists of file paths and pairs them based on
+    matching basenames. It assumes that files in the `y_files` list have
+    the same basenames as those in the `x_files` list. If a match is found,
+    the pair (x_file, y_file) is added to the result list.
+
+    Parameters:
+    - x_files (list of str): List of file paths for X files.
+    - y_files (list of str): List of file paths for Y files.
+
+    Returns:
+    - list of tuples: A list of tuples, where each tuple contains a matched
+      pair of file paths (x_file, y_file) with the same basename.
+    """
+    paired_files = []
+    for x_file in x_files:
+        basename = os.path.basename(x_file)
+        # Assuming Y files have the exact same naming as X files.
+        y_file = [y for y in y_files if os.path.basename(y) == basename]
+        if y_file:
+            paired_files.append((x_file, y_file[0]))
+    return paired_files
+
+
+def image_to_vid(images):
+    """
+    Converts a list of image tensors into a GIF and saves it.
+
+    This function takes a list of image tensors, converts each tensor to a PIL image,
+    and saves these images as a GIF file.
+
+    Parameters:
+    - images (list of torch.Tensor): A list of tensors representing images.
+
+    The function saves the resulting GIF to a fixed relative path 'outputs/generated_images.gif'.
+    """
+    imgs = [np.array(to_pil_image(img)) for img in images]  # Convert tensors to PIL images and then to arrays
+    imageio.mimsave('outputs/generated_images.gif', imgs)  # Save as GIF
+    
+    
+def save_reconstructed_images(recon_images, epoch):
+    """
+    Saves reconstructed images to a JPEG file.
+
+    This function saves a batch of reconstructed images to a JPEG file, naming the file
+    based on the epoch number to track progress across different epochs.
+
+    Parameters:
+    - recon_images (torch.Tensor): A tensor containing the reconstructed images.
+    - epoch (int): The current epoch number, used for naming the output file.
+
+    The images are saved to 'outputs/' with a filename that includes the epoch number.
+    """
+    save_image(recon_images.cpu(), f"outputs/output{epoch}.jpg")  # Save image file
+    
+
+def save_loss_plot(train_loss, valid_loss):
+    """
+    Saves a plot of training and validation loss over epochs.
+
+    This function generates and saves a line plot showing the training and validation loss over
+    each epoch, which helps in monitoring the model's learning progress.
+
+    Parameters:
+    - train_loss (list of float): A list of training loss values per epoch.
+    - valid_loss (list of float): A list of validation loss values per epoch.
+
+    The plot is saved as 'loss.jpg' in '../outputs/' and also displayed in the output cell.
+    """
+    plt.figure(figsize=(10, 7))  # Set figure size
+    plt.plot(train_loss, color='orange', label='train loss')  # Plot training loss
+    plt.plot(valid_loss, color='red', label='validataion loss')  # Plot validation loss
+    plt.xlabel('Epochs')  # Label x-axis
+    plt.ylabel('Loss')  # Label y-axis
+    plt.legend()  # Show legend
+    plt.savefig('outputs/loss.jpg')  # Save the figure
+    plt.show()  # Display the plot
+
+def create_dataframe(wav_filepaths, txt_filepaths):
+    """
+    Create a DataFrame with text prompts from .txt files and corresponding .wav file paths, 
+    matching based on filenames without their extensions.
+
+    Parameters:
+    - wav_filepaths (list of str): List of filepaths to .wav files.
+    - txt_filepaths (list of str): List of filepaths to .txt files containing the prompts.
+    
+    Returns:
+    - pd.DataFrame: A DataFrame where the first column is 'Text Prompt' containing prompts from the .txt files,
+                    and the second column is 'Wav Filepath' containing the corresponding .wav file paths.
+    """
+    # Create dictionaries to hold file paths keyed by base filename
+    wav_dict = {os.path.splitext(os.path.basename(wav))[0]: wav for wav in wav_filepaths}
+    txt_dict = {os.path.splitext(os.path.basename(txt))[0]: txt for txt in txt_filepaths}
+
+    matched_prompts = []
+    matched_wavs = []
+
+    # Find matching file names and read the corresponding text prompt
+    for base_filename, txt_path in txt_dict.items():
+        if base_filename in wav_dict:
+            with open(txt_path, 'r', encoding='utf-8') as file:
+                first_line = file.readline().strip()
+                matched_prompts.append(first_line)
+                matched_wavs.append(wav_dict[base_filename])
+
+    # Create the DataFrame from matched entries
+    data = {'Text Prompt': matched_prompts, 'Wav Filepath': matched_wavs}
+    df = pd.DataFrame(data)
+
+    return df
