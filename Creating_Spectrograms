@@ -1,0 +1,55 @@
+for i in range(len(df_yvalidation)):
+ #CREATING SPECTROGRAMS
+ # Load an audio file
+ y, sr = librosa.load(str(df_yvalidation.iloc[i, 1]))
+ # Compute the Mel-spectrogram
+ S = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128, fmax=8000)
+ import numpy as np
+ # Convert to decibel units
+ S_dB = librosa.power_to_db(S, ref=np.max)
+ # Save the spectrogram array to a file
+ np.save('/Users/harish/Downloads/starter_code/data_processed_f/validation/Y_spec/' + str(i) + '.npy', S_dB)
+ df_yvalidation.iloc[i, 2] = '/Users/harish/Downloads/starter_code/data_processed_f/validation/Y_spec/'+ str(i) + '.npy'
+
+
+import matplotlib.pyplot as plt
+from skimage import data, color
+from skimage.transform import rescale, resize, downscale_local_mean
+
+for i in range(len(df_yvalidation)):
+  image = np.load("/Users/harish/Downloads/starter_code/data_processed_f/validation/Y_spec/" + str(i) + '.npy')
+  h, w = image.shape
+  df_yvalidation.iloc[i, 3] = h
+  df_yvalidation.iloc[i, 4] = w
+  image_resized = resize(
+      image, (128, 1024), anti_aliasing=True
+  )
+  np.save('/Users/harish/Downloads/starter_code/data_processed_f/validation/Y_stretched/' + str(i) + '.npy', image_resized)
+  df_yvalidation.iloc[i, 5] = '/Users/harish/Downloads/starter_code/data_processed_f/validation/Y_stretched/'+ str(i) + '.npy'
+
+
+df_yvalidation['Normalized Spectrograms Filepath'] = "TBD"
+
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+spectrograms = np.zeros((3479, 128, 1024))
+
+
+for i in range(len(df_yvalidation)):
+  spec_filepath = str(df_yvalidation.iloc[i, 5])
+  img = np.load(spec_filepath)
+  spectrograms[i,:,:] = img
+
+new_spectrograms = (spectrograms - avg_px)/(stdev_px + 1E-6)
+
+for i in range(len(df_yvalidation)):
+  image = new_spectrograms[i,:,:]
+  # You shouldn't need to transform them before saving them to a file,
+  # the NumpyDataset class will do that as it loads in numpy arrays and passes it to the model for validationing
+ 
+  # image = image.data_transforms
+  # Save the normalized image array to a file
+  # look up fstrings to understand what this command does, I also save it to a different folder called y_normalized
+  np.save(f'data_processed_f/validation/y_normalized/{i:06d}.npy', image)
